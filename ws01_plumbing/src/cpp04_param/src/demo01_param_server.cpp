@@ -1,22 +1,27 @@
 /*
-  需求：编写「参数服务端」节点（持有参数的一方）。
-        声明若干参数，定时打印；外部修改参数时通过回调更新并校验。
+  需求：编写参数服务端（持有参数的一方），完整演示「增、查、改、删」，
+        并常驻 spin，供客户端 / ros2 param 远程操作。
 
   对应课程：2.5.3 参数服务 (C++)
 
-  概念：
-    - 每个 Node 自带参数接口（底层是一组标准服务，如 get/set/list/describe）
-    - 本节点「声明 + 持有」参数；其它节点或 ros2 param 命令可远程读写
-    - add_on_set_parameters_callback：参数被设置前触发，可接受或拒绝
+  流程：
+    1. 包含头文件
+    2. 初始化 ROS2 客户端
+    3. 定义节点类（可开启 allow_undeclared_parameters）
+       3-1. 增：declare_parameter
+       3-2. 查：get_parameter / has_parameter
+       3-3. 改：set_parameter（本节点自改）+ on_set_parameters（远端改时的闸门）
+       3-4. 删：undeclare_parameter（演示用临时参数）
+    4. 调用 spin，持续提供参数服务
+    5. 资源释放
 
-  本 demo 参数：
+  本节点长期保留的参数：
     car_name   string   默认 "turtle"
-    width      double   默认 0.25   （建议 0.1 ~ 1.0）
-    length     double   默认 0.45   （建议 0.1 ~ 2.0）
+    width      double   默认 0.25   （0.1 ~ 1.0）
+    length     double   默认 0.45   （0.1 ~ 2.0）
 
   运行：
     ros2 run cpp04_param demo01_param_server
-    # 另开终端：
     ros2 param list
     ros2 param get /param_server_node car_name
     ros2 param set /param_server_node width 0.30
@@ -25,8 +30,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
 
-#include <vector>
 #include <string>
+#include <vector>
 
 using namespace std::chrono_literals;
 
@@ -34,24 +39,47 @@ class ParamServer : public rclcpp::Node
 {
 public:
   ParamServer()
-  : Node("param_server_node")
+  : Node(
+      "param_server_node",
+      // 课件常见：允许未 declare 的参数被 set（会自动声明）
+      // 正式项目更推荐：只用 declare 过的参数，便于类型与范围管理
+      rclcpp::NodeOptions().allow_undeclared_parameters(true))
   {
-    RCLCPP_INFO(this->get_logger(), "参数服务端节点已创建");
+    RCLCPP_INFO(this->get_logger(), "参数服务端创建");
 
-    // ---------- ① 声明参数（必须先 declare，才能被 get / 远程 set）----------
+    // ---------- 3-1. 增 ----------
     this->declare_parameter<std::string>("car_name", "turtle");
     this->declare_parameter<double>("width", 0.25);
     this->declare_parameter<double>("length", 0.45);
+    // 临时参数：后面专门用来演示「删」
+    this->declare_parameter<bool>("tmp_flag", true);
+    RCLCPP_INFO(this->get_logger(), "[增] declare car_name / width / length / tmp_flag");
 
-    // 读出当前值到成员，后面定时器直接用
+    // ---------- 3-2. 查 ----------
     refresh_from_node();
+    RCLCPP_INFO(
+      this->get_logger(),
+      "[查] car_name=%s, width=%.3f, length=%.3f, tmp_flag=%s",
+      car_name_.c_str(), width_, length_,
+      this->get_parameter("tmp_flag").as_bool() ? "true" : "false");
 
-    // ---------- ② 注册「设置参数」回调：外部 set 时会进这里 ----------
-    // 返回 successful=false 可拒绝本次修改（例如越界）
+    // ---------- 3-3. 改（本节点自己改一遍，证明 set_parameter 可用）----------
+    this->set_parameter(rclcpp::Parameter("car_name", "turtle1"));
+    car_name_ = this->get_parameter("car_name").as_string();
+    RCLCPP_INFO(this->get_logger(), "[改] 本节点自改 car_name -> %s", car_name_.c_str());
+
+    // 远端 set 时的校验回调（客户端 / ros2 param set 都会进这里）
     param_cb_handle_ = this->add_on_set_parameters_callback(
       std::bind(&ParamServer::on_set_parameters, this, std::placeholders::_1));
 
-    // ---------- ③ 定时打印，观察参数是否被改掉 ----------
+    // ---------- 3-4. 删 ----------
+    this->undeclare_parameter("tmp_flag");
+    RCLCPP_INFO(
+      this->get_logger(),
+      "[删] undeclare tmp_flag, has_parameter=%s",
+      this->has_parameter("tmp_flag") ? "true" : "false");
+
+    // 定时打印，方便观察远端改参是否生效
     timer_ = this->create_wall_timer(
       2s, std::bind(&ParamServer::on_timer, this));
   }
@@ -64,7 +92,6 @@ private:
     length_ = this->get_parameter("length").as_double();
   }
 
-  // parameters：本次要设置的参数列表（可能一次改多个）
   rcl_interfaces::msg::SetParametersResult on_set_parameters(
     const std::vector<rclcpp::Parameter> & parameters)
   {
@@ -72,7 +99,7 @@ private:
     result.successful = true;
 
     for (const auto & p : parameters) {
-      RCLCPP_INFO(this->get_logger(), "收到参数设置请求: %s", p.get_name().c_str());
+      RCLCPP_INFO(this->get_logger(), "[远端改] 请求设置: %s", p.get_name().c_str());
 
       if (p.get_name() == "car_name") {
         if (p.as_string().empty()) {
@@ -98,6 +125,7 @@ private:
         }
         length_ = v;
       }
+      // 其它名字：因 allow_undeclared_parameters，可能是新参数，默认放行
     }
     return result;
   }
@@ -122,7 +150,6 @@ int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
   auto node = std::make_shared<ParamServer>();
-  // spin：定时器 + 参数服务回调都靠它调度
   rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;

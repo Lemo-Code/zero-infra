@@ -5,20 +5,25 @@
 
 对应代码：
 
-- 参数服务端（持有参数）：`demo01_param_server.cpp`
-- 参数客户端（远程读写）：`demo02_param_client.cpp`
-- 目标节点名：`param_server_node`
+| 文件 | 作用 |
+|------|------|
+| `demo00_param.cpp` | **单节点**把「增删改查」跑通（入门，跑完就退出） |
+| `demo01_param_server.cpp` | 服务端：增删改查 + 常驻 spin，供远端操作 |
+| `demo02_param_client.cpp` | 客户端：远程查 / 改 |
+
+目标节点名（服务端）：`param_server_node`
 
 运行：
 
 ```bash
-# 终端 1：参数服务端（常驻）
-ros2 run cpp04_param demo01_param_server
+# 入门：只看本节点增删改查日志
+ros2 run cpp04_param demo00_param
 
-# 终端 2：参数客户端（跑完演示后退出）
+# 完整：服务端常驻 + 客户端远程改
+ros2 run cpp04_param demo01_param_server
 ros2 run cpp04_param demo02_param_client
 
-# 或不用客户端，直接命令行：
+# 命令行等价操作
 ros2 param list
 ros2 param get /param_server_node car_name
 ros2 param set /param_server_node width 0.30
@@ -26,7 +31,32 @@ ros2 param set /param_server_node width 0.30
 
 ---
 
-## 0. 参数服务是什么
+## 0. 先记住课件里的四步：增删改查
+
+| 步骤 | 中文 | API | 含义 |
+|------|------|-----|------|
+| 3-1 | **增** | `declare_parameter` | 在本节点登记参数（名/类型/默认值） |
+| 3-2 | **查** | `get_parameter` / `has_parameter` / `list_parameters` | 读当前值或是否存在 |
+| 3-3 | **改** | `set_parameter` / `set_parameters` | 改值；远端改会进 `on_set_parameters` |
+| 3-4 | **删** | `undeclare_parameter` | 从本节点参数表移除 |
+
+构造节点时课件常见选项：
+
+```cpp
+Node("param_server_node",
+     rclcpp::NodeOptions().allow_undeclared_parameters(true));
+```
+
+| 选项 | 作用 |
+|------|------|
+| `allow_undeclared_parameters(true)` | 允许对**尚未 declare** 的名字直接 `set`（会自动声明） |
+| 默认 `false` | 未声明就 set 通常失败，更严格、更适合正式项目 |
+
+注意：有的旧课件写成 `NodeOptions().all()`，在当前 ROS 2（Jazzy）里应使用上面的 `allow_undeclared_parameters(true)`。
+
+---
+
+## 0.1 参数服务是什么
 
 和 Topic / Service / Action 不同：
 
@@ -34,7 +64,7 @@ ros2 param set /param_server_node width 0.30
 |--|-------|---------|--------|------------------|
 | 目的 | 流式数据 | 一次请求应答 | 长任务+反馈+取消 | **节点配置项的读写** |
 | 谁持有数据 | 发布端发出即走 | 算完就返回 | Goal/Result | **参数在某个 Node 上长期存放** |
-| 典型操作 | publish / subscribe | call | send_goal | declare / get / set / list |
+| 典型操作 | publish / subscribe | call | send_goal | **增删改查** declare/get/set/undeclare |
 
 一句话：
 
@@ -42,7 +72,7 @@ ros2 param set /param_server_node width 0.30
 
 底层其实也是 ROS 服务（`~/get_parameters` 等），但业务上用 Param API，不必手写 srv。
 
-本 demo 三个参数：
+本 demo 长期保留的参数：
 
 | 名 | 类型 | 默认 | 校验 |
 |----|------|------|------|

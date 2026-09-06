@@ -16,8 +16,9 @@ cpp04_param
 
 | 可执行文件 | 源文件 | 角色 |
 |------------|--------|------|
-| `demo01_param_server` | `demo01_param_server.cpp` | 声明并持有参数 |
-| `demo02_param_client` | `demo02_param_client.cpp` | 远程 list/get/set |
+| `demo00_param` | `demo00_param.cpp` | 单节点演示增删改查（入门） |
+| `demo01_param_server` | `demo01_param_server.cpp` | 服务端：增删改查 + 常驻 |
+| `demo02_param_client` | `demo02_param_client.cpp` | 客户端：远程查 / 改 |
 
 头文件：
 
@@ -28,9 +29,23 @@ cpp04_param
 
 ---
 
-## 2. 服务端 API
+## 2. 增删改查 API（学习核心）
 
-### 2.1 `declare_parameter`
+### 2.0 `NodeOptions::allow_undeclared_parameters`
+
+```cpp
+Node("param_server_node",
+     rclcpp::NodeOptions().allow_undeclared_parameters(true));
+```
+
+| 值 | 行为 |
+|----|------|
+| `true` | 未 declare 的名字也可 `set`，会自动声明（课件常用） |
+| `false`（默认） | 更严格，先 declare 再 set |
+
+旧课件若写 `NodeOptions().all()`，请改成上面写法。
+
+### 2.1 增：`declare_parameter`
 
 ```cpp
 this->declare_parameter<std::string>("car_name", "turtle");
@@ -41,16 +56,14 @@ this->declare_parameter<double>("length", 0.45);
 | 项 | 说明 |
 |----|------|
 | 作用 | 在本节点登记参数名、类型、默认值 |
-| 不声明 | 远程 get/set 通常不可用或不符合预期 |
-| 模板 | 指定 C++ 类型；也可用非模板重载 + `ParameterValue` |
+| 不声明 | 在 `allow_undeclared=false` 时，远程 get/set 通常失败 |
 
-可选进阶：带 `ParameterDescriptor`（描述、范围），本基础 demo 未展开。
-
-### 2.2 `get_parameter` / `as_*`
+### 2.2 查：`get_parameter` / `has_parameter`
 
 ```cpp
 car_name_ = this->get_parameter("car_name").as_string();
 width_    = this->get_parameter("width").as_double();
+bool exists = this->has_parameter("tmp_flag");
 ```
 
 | 方法 | 类型 |
@@ -61,9 +74,30 @@ width_    = this->get_parameter("width").as_double();
 | `as_string()` | string |
 | `as_double_array()` 等 | 数组 |
 
-也可用 `this->get_parameter("width", width_);` 等形式（重载较多，见官方文档）。
+远端查：`SyncParametersClient::get_parameters` / `list_parameters`。
 
-### 2.3 `add_on_set_parameters_callback`
+### 2.3 改：`set_parameter` / `set_parameters`
+
+```cpp
+// 本节点自己改
+this->set_parameter(rclcpp::Parameter("car_name", "turtle1"));
+
+// 远端客户端改
+param_client_->set_parameters({rclcpp::Parameter("width", 0.30)});
+```
+
+远端改会先经过服务端 `add_on_set_parameters_callback`；可 `successful=false` 拒绝。
+
+### 2.4 删：`undeclare_parameter`
+
+```cpp
+this->undeclare_parameter("tmp_flag");
+// 之后 has_parameter("tmp_flag") == false
+```
+
+删除是**持有参数的节点**上的操作；学习上在 demo00 / demo01 里演示即可。
+
+### 2.5 `add_on_set_parameters_callback`
 
 ```cpp
 param_cb_handle_ = this->add_on_set_parameters_callback(
