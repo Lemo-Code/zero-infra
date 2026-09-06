@@ -88,7 +88,8 @@ zero-infra/                 ← git 根（wms 分支）
     │   ├── base_interfaces_demo/
     │   ├── cpp01_topic/
     │   ├── cpp02_service/
-    │   └── cpp03_action/
+    │   ├── cpp03_action/
+    │   └── cpp04_param/
     ├── build/              ← 忽略，本地 colcon 生成
     ├── install/            ← 忽略
     └── log/                ← 忽略
@@ -116,7 +117,8 @@ source install/setup.bash
 | `*调用过程详解.md` | 从 0 到 1 的完整时序（含取消等） |
 | `*_API与模块详解.md` | 本模块用到的 API / 依赖 / 命令行 |
 
-接口包：`base_interfaces_demo/接口模块详解.md`
+接口包：`base_interfaces_demo/接口模块详解.md`  
+参数包：`cpp04_param/Param调用过程详解.md`、`Param_API与模块详解.md`
 
 改 API 行为或回调流程时：**同步改对应 md**，避免文档和代码脱节。
 
