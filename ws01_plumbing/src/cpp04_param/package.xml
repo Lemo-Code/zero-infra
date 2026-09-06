@@ -3,7 +3,7 @@
 <package format="3">
   <name>cpp04_param</name>
   <version>0.0.0</version>
-  <description>ROS2 parameter service learning demo (C++)</description>
+  <description>ROS2 parameter service learning demos (C++) — 增删改查</description>
   <maintainer email="15506437023@163.com">wangmaosen</maintainer>
   <license>Apache-2.0</license>
 

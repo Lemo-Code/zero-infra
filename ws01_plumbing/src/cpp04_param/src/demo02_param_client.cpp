@@ -1,15 +1,21 @@
 /*
-  需求：参数客户端 —— 对远端 param_server_node 做「查、改」，
-        并演示 list；删除一般在服务端 undeclare（客户端侧较少直接删）。
+  ============================================================
+  demo02_param_client —— 参数客户端（远程查 / 改）
+  ============================================================
+  对应课程：2.5.3 参数服务 (C++) / 第 04 节客户端
 
-  对应课程：2.5.3 参数服务 (C++)
+  学习目标：
+    1. 用 SyncParametersClient 连接远端 param_server_node
+    2. 远程：list（查列表）/ get（查值）/ set（改）
+    3. 观察合法 set 成功、非法 set 被服务端拒绝
+    4. 了解「删」通常在服务端 undeclare（见 demo00 / demo01）
 
   流程：
-    1. 创建 SyncParametersClient(this, "param_server_node")
-    2. wait_for_service
-    3. 查：list_parameters / get_parameters
-    4. 改：set_parameters（合法 + 非法拒绝）
-    5. 再查确认；演示结束退出
+    1. 包含头文件
+    2. 初始化 ROS2
+    3. 创建客户端节点 + SyncParametersClient
+    4. wait_for_service → list → get → set → 再 get → 非法 set
+    5. shutdown 退出
 
   运行（先开服务端）：
     ros2 run cpp04_param demo01_param_server
@@ -31,38 +37,91 @@ public:
   ParamClient()
   : Node("param_client_node")
   {
-    RCLCPP_INFO(this->get_logger(), "参数客户端节点已创建");
+    RCLCPP_INFO(this->get_logger(), "参数客户端创建");
+    // 第二个参数 = 要操作的远端节点名（必须和服务端一致）
     param_client_ = std::make_shared<rclcpp::SyncParametersClient>(
       this, "param_server_node");
   }
 
   bool run_demo()
   {
-    RCLCPP_INFO(this->get_logger(), "等待参数服务端上线...");
+    RCLCPP_INFO(this->get_logger(), "等待参数服务端...");
     if (!param_client_->wait_for_service(10s)) {
-      RCLCPP_ERROR(this->get_logger(), "等待超时，请先启动 demo01_param_server");
+      RCLCPP_ERROR(this->get_logger(), "超时！请先启动: ros2 run cpp04_param demo01_param_server");
       return false;
     }
     RCLCPP_INFO(this->get_logger(), "服务端已就绪");
 
     // ---------- 查：列出 ----------
-    try {
-      auto listed = param_client_->list_parameters({}, 0);
-      RCLCPP_INFO(this->get_logger(), "[查/list] 远端共 %zu 个参数:", listed.names.size());
-      for (const auto & name : listed.names) {
-        RCLCPP_INFO(this->get_logger(), "  - %s", name.c_str());
-      }
-    } catch (const std::exception & e) {
-      RCLCPP_ERROR(this->get_logger(), "list_parameters 失败: %s", e.what());
+    if (!do_list()) {
       return false;
     }
 
     // ---------- 查：取值 ----------
-    if (!print_params("[查/get] ")) {
+    if (!do_get("改之前")) {
       return false;
     }
 
     // ---------- 改：合法 ----------
+    if (!do_set_ok()) {
+      return false;
+    }
+
+    // ---------- 查：确认 ----------
+    if (!do_get("改之后")) {
+      return false;
+    }
+
+    // ---------- 改：非法（应被拒绝）----------
+    do_set_bad();
+
+    // ---------- 删：说明 ----------
+    RCLCPP_INFO(
+      this->get_logger(),
+      "【删】客户端一般不直接删远端参数；请看服务端 undeclare_parameter（demo00/demo01）");
+
+    return true;
+  }
+
+private:
+  bool do_list()
+  {
+    RCLCPP_INFO(this->get_logger(), "======== 查 list ========");
+    try {
+      auto listed = param_client_->list_parameters({}, 0);
+      RCLCPP_INFO(this->get_logger(), "远端参数共 %zu 个:", listed.names.size());
+      for (const auto & name : listed.names) {
+        RCLCPP_INFO(this->get_logger(), "  - %s", name.c_str());
+      }
+      return true;
+    } catch (const std::exception & e) {
+      RCLCPP_ERROR(this->get_logger(), "list_parameters 失败: %s", e.what());
+      return false;
+    }
+  }
+
+  bool do_get(const char * tag)
+  {
+    RCLCPP_INFO(this->get_logger(), "======== 查 get（%s）========", tag);
+    try {
+      auto params = param_client_->get_parameters({"car_name", "width", "length"});
+      for (const auto & p : params) {
+        RCLCPP_INFO(
+          this->get_logger(),
+          "  %s = %s",
+          p.get_name().c_str(),
+          p.value_to_string().c_str());
+      }
+      return true;
+    } catch (const std::exception & e) {
+      RCLCPP_ERROR(this->get_logger(), "get_parameters 失败: %s", e.what());
+      return false;
+    }
+  }
+
+  bool do_set_ok()
+  {
+    RCLCPP_INFO(this->get_logger(), "======== 改 set（合法）========");
     try {
       std::vector<rclcpp::Parameter> to_set = {
         rclcpp::Parameter("car_name", std::string("turtle2")),
@@ -72,57 +131,37 @@ public:
       auto results = param_client_->set_parameters(to_set);
       for (size_t i = 0; i < results.size(); ++i) {
         if (results[i].successful) {
-          RCLCPP_INFO(this->get_logger(), "[改] 成功 %s", to_set[i].get_name().c_str());
+          RCLCPP_INFO(this->get_logger(), "  OK  %s", to_set[i].get_name().c_str());
         } else {
           RCLCPP_WARN(
-            this->get_logger(), "[改] 失败 %s: %s",
+            this->get_logger(), "  FAIL %s: %s",
             to_set[i].get_name().c_str(), results[i].reason.c_str());
         }
       }
+      return true;
     } catch (const std::exception & e) {
       RCLCPP_ERROR(this->get_logger(), "set_parameters 失败: %s", e.what());
       return false;
     }
+  }
 
-    if (!print_params("[查/改后] ")) {
-      return false;
-    }
-
-    // ---------- 改：非法（观察服务端拒绝）----------
+  void do_set_bad()
+  {
+    RCLCPP_INFO(this->get_logger(), "======== 改 set（非法 width=9.9，应拒绝）========");
     try {
       auto results = param_client_->set_parameters(
         {rclcpp::Parameter("width", 9.9)});
-      if (!results.empty() && !results[0].successful) {
-        RCLCPP_WARN(
-          this->get_logger(),
-          "[改/拒绝] width=9.9, reason=%s",
-          results[0].reason.c_str());
+      if (!results.empty()) {
+        if (!results[0].successful) {
+          RCLCPP_WARN(
+            this->get_logger(),
+            "  预期拒绝: %s", results[0].reason.c_str());
+        } else {
+          RCLCPP_ERROR(this->get_logger(), "  意外：非法值居然成功了");
+        }
       }
     } catch (const std::exception & e) {
       RCLCPP_ERROR(this->get_logger(), "非法 set 异常: %s", e.what());
-    }
-
-    // 说明：参数的「删」通常用服务端 undeclare_parameter；
-    // 客户端也可尝试 delete_parameters（若发行版 API 支持），本课以服务端删除演示为准。
-    RCLCPP_INFO(this->get_logger(), "[删] 见 demo00/demo01 服务端 undeclare_parameter");
-
-    return true;
-  }
-
-private:
-  bool print_params(const char * prefix)
-  {
-    try {
-      auto params = param_client_->get_parameters({"car_name", "width", "length"});
-      for (const auto & p : params) {
-        RCLCPP_INFO(
-          this->get_logger(), "%s%s = %s",
-          prefix, p.get_name().c_str(), p.value_to_string().c_str());
-      }
-      return true;
-    } catch (const std::exception & e) {
-      RCLCPP_ERROR(this->get_logger(), "get_parameters 失败: %s", e.what());
-      return false;
     }
   }
 

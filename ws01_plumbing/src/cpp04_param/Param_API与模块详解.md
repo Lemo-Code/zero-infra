@@ -1,69 +1,79 @@
-# 参数服务模块：API 与相关内容详解
+# 第 04 节 · 参数服务 API 与模块详解
 
-> 配套文档：`Param调用过程详解.md`  
-> 课程：**2.5.3 参数服务 (C++)**  
-> 包：`cpp04_param`
+> 配套：[`Param调用过程详解.md`](./Param调用过程详解.md)  
+> 包：`cpp04_param`  
+> 面向初学者：按「增删改查 + 客户端」索引 API
 
 ---
 
-## 1. 模块与依赖
+## 1. 包结构
 
 ```text
-cpp04_param
-├── depend: rclcpp
-└── depend: rcl_interfaces   ← SetParametersResult 等
+cpp04_param/
+├── package.xml / CMakeLists.txt
+├── Param调用过程详解.md      ← 流程与概念（先读）
+├── Param_API与模块详解.md    ← 本文
+└── src/
+    ├── demo00_param.cpp           入门：单节点增删改查
+    ├── demo01_param_server.cpp    服务端：四函数 + spin
+    └── demo02_param_client.cpp    客户端：远程 list/get/set
 ```
 
-| 可执行文件 | 源文件 | 角色 |
-|------------|--------|------|
-| `demo00_param` | `demo00_param.cpp` | 单节点演示增删改查（入门） |
-| `demo01_param_server` | `demo01_param_server.cpp` | 服务端：增删改查 + 常驻 |
-| `demo02_param_client` | `demo02_param_client.cpp` | 客户端：远程查 / 改 |
+依赖：
 
-头文件：
+| 依赖 | 用途 |
+|------|------|
+| `rclcpp` | Node、参数 API、SyncParametersClient |
+| `rcl_interfaces` | `SetParametersResult` 等 |
 
 ```cpp
 #include "rclcpp/rclcpp.hpp"
-#include "rcl_interfaces/msg/set_parameters_result.hpp"  // 服务端回调返回值
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
 ```
 
 ---
 
-## 2. 增删改查 API（学习核心）
+## 2. 增删改查 API
 
-### 2.0 `NodeOptions::allow_undeclared_parameters`
+### 2.0 构造选项
 
 ```cpp
-Node("param_server_node",
-     rclcpp::NodeOptions().allow_undeclared_parameters(true));
+rclcpp::NodeOptions()
+  .allow_undeclared_parameters(true);
 ```
 
-| 值 | 行为 |
-|----|------|
-| `true` | 未 declare 的名字也可 `set`，会自动声明（课件常用） |
-| `false`（默认） | 更严格，先 declare 再 set |
+| API | 含义 |
+|-----|------|
+| `allow_undeclared_parameters(true)` | 未 declare 也可 set（自动声明） |
+| 默认 false | 必须先 declare |
 
-旧课件若写 `NodeOptions().all()`，请改成上面写法。
+旧课件 `NodeOptions().all()` → 请改成上面写法（Jazzy）。
 
-### 2.1 增：`declare_parameter`
+### 2.1 增 —— `declare_parameter`
 
 ```cpp
 this->declare_parameter<std::string>("car_name", "turtle");
-this->declare_parameter<double>("width", 0.25);
-this->declare_parameter<double>("length", 0.45);
+this->declare_parameter<double>("width", 0.15);
+this->declare_parameter<bool>("tmp_flag", true);
 ```
 
-| 项 | 说明 |
+| 点 | 说明 |
 |----|------|
-| 作用 | 在本节点登记参数名、类型、默认值 |
-| 不声明 | 在 `allow_undeclared=false` 时，远程 get/set 通常失败 |
+| 作用 | 登记参数名、类型、默认值 |
+| 模板 | 指定 C++ 类型 |
+| 不声明 | `allow_undeclared=false` 时外部很难正确读写 |
 
-### 2.2 查：`get_parameter` / `has_parameter`
+### 2.2 查 —— `get_parameter` / `has_parameter` / `get_parameters`
 
 ```cpp
-car_name_ = this->get_parameter("car_name").as_string();
-width_    = this->get_parameter("width").as_double();
-bool exists = this->has_parameter("tmp_flag");
+auto p = this->get_parameter("car_name");
+std::string name = p.as_string();
+
+double width = 0.0;
+this->get_parameter("width", width);
+
+bool ok = this->has_parameter("tmp_flag");
+auto many = this->get_parameters({"car_name", "width", "length"});
 ```
 
 | 方法 | 类型 |
@@ -72,148 +82,83 @@ bool exists = this->has_parameter("tmp_flag");
 | `as_int()` | int64 |
 | `as_double()` | double |
 | `as_string()` | string |
-| `as_double_array()` 等 | 数组 |
+| `value_to_string()` | 打印友好 |
+| `get_type_name()` | 类型名字符串 |
 
-远端查：`SyncParametersClient::get_parameters` / `list_parameters`。
-
-### 2.3 改：`set_parameter` / `set_parameters`
+远端查：
 
 ```cpp
-// 本节点自己改
-this->set_parameter(rclcpp::Parameter("car_name", "turtle1"));
-
-// 远端客户端改
-param_client_->set_parameters({rclcpp::Parameter("width", 0.30)});
+client->list_parameters({}, 0);
+client->get_parameters({"car_name", "width"});
 ```
 
-远端改会先经过服务端 `add_on_set_parameters_callback`；可 `successful=false` 拒绝。
+### 2.3 改 —— `set_parameter` / `set_parameters`
 
-### 2.4 删：`undeclare_parameter`
+```cpp
+// 本节点
+this->set_parameter(rclcpp::Parameter("car_name", "turtle1"));
+this->set_parameters({
+  rclcpp::Parameter("width", 0.20),
+  rclcpp::Parameter("length", 0.45),
+});
+
+// 远端客户端
+client->set_parameters({rclcpp::Parameter("width", 0.30)});
+```
+
+远端改会先走服务端：
+
+```cpp
+add_on_set_parameters_callback(...)
+→ SetParametersResult { successful, reason }
+```
+
+| 字段 | 含义 |
+|------|------|
+| `successful=true` | 接受修改 |
+| `successful=false` | 拒绝，值不变 |
+| `reason` | 拒绝原因 |
+
+### 2.4 删 —— `undeclare_parameter`
 
 ```cpp
 this->undeclare_parameter("tmp_flag");
 // 之后 has_parameter("tmp_flag") == false
 ```
 
-删除是**持有参数的节点**上的操作；学习上在 demo00 / demo01 里演示即可。
-
-### 2.5 `add_on_set_parameters_callback`
-
-```cpp
-param_cb_handle_ = this->add_on_set_parameters_callback(
-  std::bind(&ParamServer::on_set_parameters, this, _1));
-```
-
-| 项 | 说明 |
-|----|------|
-| 何时触发 | 有人对本节点执行 set（含 `ros2 param set`、Param Client） |
-| 返回 | `rcl_interfaces::msg::SetParametersResult` |
-| `successful` | `true` 接受；`false` 拒绝 |
-| `reason` | 拒绝原因字符串 |
-| 句柄 | 必须用成员保存，否则回调可能被注销 |
-
-回调签名：
-
-```cpp
-SetParametersResult on_set_parameters(
-  const std::vector<rclcpp::Parameter> & parameters);
-```
-
-一次 set 可能带多个 `Parameter`，需全部检查。
-
-### 2.4 定时器 / spin / 日志
-
-与 Topic 模块相同：`create_wall_timer`、`rclcpp::spin`、`RCLCPP_INFO`。
+本节客户端以查/改为主；删除在服务端演示即可。
 
 ---
 
 ## 3. 客户端 API
 
-### 3.1 `rclcpp::SyncParametersClient`
+### 3.1 `SyncParametersClient`
 
 ```cpp
-param_client_ = std::make_shared<rclcpp::SyncParametersClient>(
-  this, "param_server_node");
+auto client = std::make_shared<rclcpp::SyncParametersClient>(
+  this, "param_server_node");  // 远端节点名！
 ```
 
-| 参数 | 含义 |
+| 方法 | 作用 |
 |------|------|
-| `this` | 本客户端节点 |
-| `"param_server_node"` | **要操作的远端节点名** |
+| `wait_for_service(timeout)` | 等参数服务就绪 |
+| `list_parameters(prefixes, depth)` | 列名 |
+| `get_parameters(names)` | 批量读 |
+| `set_parameters(params)` | 批量写，返回每条结果 |
 
-同步客户端：调用阻塞到结果返回，适合教学 / 工具脚本。  
-异步版：`rclcpp::AsyncParametersClient`（本 demo 未用）。
+同步客户端：调用时阻塞等结果，适合学习。  
+还有 `AsyncParametersClient`（本节不展开）。
 
-### 3.2 `wait_for_service`
-
-```cpp
-param_client_->wait_for_service(10s);
-```
-
-等待远端参数相关服务就绪（对端节点已启动并 declare）。
-
-### 3.3 `list_parameters`
+### 3.2 构造要写入的参数
 
 ```cpp
-auto listed = param_client_->list_parameters({}, 0);
-// listed.names → vector<string>
+rclcpp::Parameter("car_name", std::string("turtle2"));
+rclcpp::Parameter("width", 0.30);
 ```
-
-| 参数 | 本 demo | 含义 |
-|------|---------|------|
-| prefixes | `{}` | 空 = 不按前缀过滤 |
-| depth | `0` | 深度限制（0 表示不限制，按实现约定） |
-
-### 3.4 `get_parameters`
-
-```cpp
-auto params = param_client_->get_parameters({"car_name", "width", "length"});
-p.get_name();
-p.value_to_string();
-p.as_double();  // 等
-```
-
-返回 `std::vector<rclcpp::Parameter>`。
-
-### 3.5 `set_parameters`
-
-```cpp
-std::vector<rclcpp::Parameter> to_set = {
-  rclcpp::Parameter("car_name", std::string("turtle2")),
-  rclcpp::Parameter("width", 0.30),
-};
-auto results = param_client_->set_parameters(to_set);
-// results[i].successful / results[i].reason
-```
-
-| 类型 | 说明 |
-|------|------|
-| 入参 | `vector<rclcpp::Parameter>` |
-| 返回 | 每个参数一条 `SetParametersResult` |
-
-构造 `rclcpp::Parameter`：
-
-```cpp
-rclcpp::Parameter("name", value);  // value 可以是 bool/int/double/string/...
-```
-
-### 3.6 本 demo 为何 main 里不 `spin`
-
-`SyncParametersClient` 在 wait/get/set 时会自行处理与参数服务的交互；  
-演示做完即 `shutdown`。若客户端要长期订阅参数事件，再另开 `spin`。
 
 ---
 
-## 4. 相关模块
-
-| 模块 | 关系 |
-|------|------|
-| `rclcpp::Node` | 参数接口挂在 Node 上 |
-| `rcl_interfaces` | `SetParametersResult`、`ParameterDescriptor`、标准 param srv |
-| `ros2 param` CLI | 与 Client 等价的命令行入口 |
-| Topic/Service/Action | 通信数据通道；Param 是**配置面** |
-
-命令行对照：
+## 4. 命令行对照（一定要会）
 
 ```bash
 ros2 param list
@@ -223,37 +168,56 @@ ros2 param set /param_server_node width 0.30
 ros2 param dump /param_server_node
 ```
 
-注意 CLI 里节点名常带 `/` 前缀：`/param_server_node`。
+CLI 节点名常带 `/`：`/param_server_node`。
 
 ---
 
-## 5. 并发与竞态（API 视角摘要）
+## 5. 并发（初学者够用版）
 
-详见调用过程文档第 4 节。这里只记和 API 相关的点：
+| 场景 | 结论 |
+|------|------|
+| 单线程 `spin`（demo01） | 参数回调串行，类似 Redis，内存竞态压力小 |
+| 多个 client 同时 set | last-write-wins，没有分布式锁 |
+| 多线程 Executor | 自有缓存要同步，或读时再 `get_parameter` |
 
-| 场景 | API / 机制 | 结论 |
-|------|------------|------|
-| 单线程 `spin` | 参数服务回调与 `on_set_parameters`、timer 同队列 | 成员更新一般串行，无数据竞争 |
-| `MultiThreadedExecutor` | 同上可能并行 | 自有缓存加锁，或读用 `get_parameter` |
-| 多 `SyncParametersClient` / CLI 同时 `set_parameters` | 请求在持有节点侧排队处理 | 无分布式锁；**后成功覆盖先成功** |
-| `SetParametersResult.successful=false` | 拒绝本次 set | 该次不参与覆盖；当前参数保持原值 |
-
-不要假设 `get_parameters` + 本地计算 + `set_parameters` 是原子的；中间别人可以插队写入。
+`get` → 本地算 → `set` **不是原子事务**，中间别人可能插队写入。
 
 ---
 
-## 6. API 速查表
+## 6. 相关模块
 
-| API | 端 | 一句话 |
-|-----|----|--------|
-| `declare_parameter` | Server | 登记参数 |
-| `get_parameter` / `as_*` | Server | 本地读值 |
-| `add_on_set_parameters_callback` | Server | 设置闸门 |
-| `SetParametersResult` | Server | 接受/拒绝 |
-| `SyncParametersClient` | Client | 连远端节点 |
-| `wait_for_service` | Client | 等参数服务 |
-| `list_parameters` | Client | 列名 |
-| `get_parameters` | Client | 批量读 |
-| `set_parameters` | Client | 批量写（多写者 last-write-wins） |
-| `rclcpp::Parameter` | Client | 构造要写的项 |
-| `create_wall_timer` / `spin` | Server | 打印与调度 |
+| 模块 | 关系 |
+|------|------|
+| `rclcpp::Node` | 参数挂在 Node 上 |
+| `rcl_interfaces` | 结果消息、描述符、标准 param 服务 |
+| `cpp02_service` | 自定义一问一答；Param 是配置面 |
+| `ros2 param` | 命令行版参数客户端 |
+
+---
+
+## 7. API 速查表
+
+| API | 角色 | 一句话 |
+|-----|------|--------|
+| `NodeOptions::allow_undeclared_parameters` | Server | 是否允许未声明就 set |
+| `declare_parameter` | Server | **增** |
+| `get_parameter` / `has_parameter` / `get_parameters` | Server | **查** |
+| `set_parameter` / `set_parameters` | Server | **改**（本地） |
+| `undeclare_parameter` | Server | **删** |
+| `add_on_set_parameters_callback` | Server | 远端改的闸门 |
+| `SyncParametersClient` | Client | 连接远端节点 |
+| `wait_for_service` | Client | 等待 |
+| `list_parameters` | Client | 远程查列表 |
+| `get_parameters` | Client | 远程查值 |
+| `set_parameters` | Client | 远程改 |
+| `rclcpp::spin` | Server | 常驻提供服务 |
+
+---
+
+## 8. 推荐阅读顺序
+
+1. 本文第 2 节（增删改查 API）  
+2. 打开 `demo00_param.cpp` 对照跑一遍  
+3. 打开 `demo01_param_server.cpp` 看四函数 + 回调  
+4. 打开 `demo02_param_client.cpp` + 调用过程文档第 5 节  
+5. 用 `ros2 param` 自己改服务端参数  

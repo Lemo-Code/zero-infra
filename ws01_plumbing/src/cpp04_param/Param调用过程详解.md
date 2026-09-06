@@ -1,29 +1,67 @@
-# 参数服务 从 0 到 1：完整调用过程
+# 第 04 节 · 参数服务（C++）完整学习文档
 
-> 对应课程：**2.5.3 参数服务 (C++)**  
-> API 详解见同目录：[`Param_API与模块详解.md`](./Param_API与模块详解.md)
+> 包：`cpp04_param`  
+> 课程：2.5.3 参数服务 (C++)  
+> API 速查：[`Param_API与模块详解.md`](./Param_API与模块详解.md)
 
-对应代码：
+---
 
-| 文件 | 作用 |
-|------|------|
-| `demo00_param.cpp` | **单节点**把「增删改查」跑通（入门，跑完就退出） |
-| `demo01_param_server.cpp` | 服务端：增删改查 + 常驻 spin，供远端操作 |
-| `demo02_param_client.cpp` | 客户端：远程查 / 改 |
+## 1. 本节要学会什么
 
-目标节点名（服务端）：`param_server_node`
+参数（Parameter）用来存放**节点配置**，不是用来传传感器流数据的。
 
-运行：
+| 通信方式 | 干什么 | 数据寿命 |
+|----------|--------|----------|
+| Topic | 持续广播 | 发出即走 |
+| Service | 一问一答 | 算完就结束 |
+| Action | 长任务 + 反馈 + 取消 | 一次任务周期 |
+| **Param** | **读写配置项** | **挂在某个 Node 上长期存在** |
+
+课件要求掌握四个动作：
+
+| 步骤 | 名字 | API |
+|------|------|-----|
+| 3-1 | **增** | `declare_parameter` |
+| 3-2 | **查** | `get_parameter` / `has_parameter` / `list_parameters` |
+| 3-3 | **改** | `set_parameter` / `set_parameters` |
+| 3-4 | **删** | `undeclare_parameter` |
+
+推荐节点写法（与课件一致）：构造函数里依次调用四个成员函数，再 `spin`。
+
+```cpp
+ParamServer() : Node("param_server_node", options) {
+  declare_param();  // 增
+  get_param();      // 查
+  update_param();   // 改
+  del_param();      // 删
+}
+```
+
+---
+
+## 2. 三个可执行文件怎么用
+
+| 程序 | 作用 | 是否常驻 |
+|------|------|----------|
+| `demo00_param` | 单节点把增删改查跑一遍（入门） | 否，跑完退出 |
+| `demo01_param_server` | 服务端：增删改查 + 常驻提供参数服务 | 是，`spin` |
+| `demo02_param_client` | 客户端：远程 list / get / set | 否，演示完退出 |
 
 ```bash
-# 入门：只看本节点增删改查日志
+cd ~/learning/zero-infra/ws01_plumbing
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+# ① 入门
 ros2 run cpp04_param demo00_param
 
-# 完整：服务端常驻 + 客户端远程改
+# ② 完整演示
+# 终端 A
 ros2 run cpp04_param demo01_param_server
+# 终端 B
 ros2 run cpp04_param demo02_param_client
 
-# 命令行等价操作
+# ③ 命令行也能操作服务端参数
 ros2 param list
 ros2 param get /param_server_node car_name
 ros2 param set /param_server_node width 0.30
@@ -31,226 +69,135 @@ ros2 param set /param_server_node width 0.30
 
 ---
 
-## 0. 先记住课件里的四步：增删改查
-
-| 步骤 | 中文 | API | 含义 |
-|------|------|-----|------|
-| 3-1 | **增** | `declare_parameter` | 在本节点登记参数（名/类型/默认值） |
-| 3-2 | **查** | `get_parameter` / `has_parameter` / `list_parameters` | 读当前值或是否存在 |
-| 3-3 | **改** | `set_parameter` / `set_parameters` | 改值；远端改会进 `on_set_parameters` |
-| 3-4 | **删** | `undeclare_parameter` | 从本节点参数表移除 |
-
-构造节点时课件常见选项：
+## 3. NodeOptions（课件里的坑）
 
 ```cpp
 Node("param_server_node",
      rclcpp::NodeOptions().allow_undeclared_parameters(true));
 ```
 
-| 选项 | 作用 |
+| 选项 | 含义 |
 |------|------|
-| `allow_undeclared_parameters(true)` | 允许对**尚未 declare** 的名字直接 `set`（会自动声明） |
-| 默认 `false` | 未声明就 set 通常失败，更严格、更适合正式项目 |
+| `allow_undeclared_parameters(true)` | 允许对**还没 declare** 的名字直接 `set`（会自动声明） |
+| 默认 `false` | 更严格，适合正式项目 |
 
-注意：有的旧课件写成 `NodeOptions().all()`，在当前 ROS 2（Jazzy）里应使用上面的 `allow_undeclared_parameters(true)`。
-
----
-
-## 0.1 参数服务是什么
-
-和 Topic / Service / Action 不同：
-
-| | Topic | Service | Action | **参数 (Param)** |
-|--|-------|---------|--------|------------------|
-| 目的 | 流式数据 | 一次请求应答 | 长任务+反馈+取消 | **节点配置项的读写** |
-| 谁持有数据 | 发布端发出即走 | 算完就返回 | Goal/Result | **参数在某个 Node 上长期存放** |
-| 典型操作 | publish / subscribe | call | send_goal | **增删改查** declare/get/set/undeclare |
-
-一句话：
-
-> 每个 Node 自带一套「参数服务」；本节点 `declare_parameter` 后，本进程或其它节点（`SyncParametersClient` / `ros2 param`）都能 list / get / set。
-
-底层其实也是 ROS 服务（`~/get_parameters` 等），但业务上用 Param API，不必手写 srv。
-
-本 demo 长期保留的参数：
-
-| 名 | 类型 | 默认 | 校验 |
-|----|------|------|------|
-| `car_name` | string | `"turtle"` | 非空 |
-| `width` | double | `0.25` | `0.1 ~ 1.0` |
-| `length` | double | `0.45` | `0.1 ~ 2.0` |
+旧课件可能写成 `NodeOptions().all()`。在 **ROS 2 Jazzy** 请改用上面写法。
 
 ---
 
-## 1. 完整时序（从启动到客户端改参）
+## 4. 服务端完整流程（demo01）
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant S as 参数服务端<br/>param_server_node
-    participant C as 参数客户端<br/>param_client_node
-    participant CLI as ros2 param（可选）
+    participant Main as main
+    participant S as ParamServer
+    participant CLI as ros2 param / demo02
 
-    Note over S: 【阶段1】服务端启动
-    S->>S: rclcpp::init
-    S->>S: new ParamServer → Node("param_server_node")
-    S->>S: declare_parameter(car_name/width/length)
-    S->>S: get_parameter → 缓存到成员
+    Main->>S: init + 构造 ParamServer
+    S->>S: declare_param（增）
+    S->>S: get_param（查）
+    S->>S: update_param（改）
+    S->>S: del_param（删）
     S->>S: add_on_set_parameters_callback
-    S->>S: create_wall_timer(2s)
-    S->>S: rclcpp::spin 常驻
+    S->>S: create_wall_timer
+    Main->>S: spin 常驻
 
-    Note over S: 定时器周期性打印当前参数
+    CLI->>S: list / get / set
+    S->>S: on_set_parameters 校验
+    alt 合法
+        S-->>CLI: successful=true
+    else 非法（如 width=9.9）
+        S-->>CLI: successful=false + reason
+    end
+```
 
-    Note over C: 【阶段2】客户端启动
-    C->>C: init → Node("param_client_node")
+### 4.1 增 `declare_param`
+
+登记名字、类型、默认值。不声明时（且未开 `allow_undeclared`），外部很难正确读写。
+
+### 4.2 查 `get_param`
+
+- `get_parameter("x").as_string()`  
+- `get_parameter("w", width)`  
+- `get_parameters({...})` 批量  
+- `has_parameter("x")` 是否存在  
+
+### 4.3 改 `update_param`
+
+- 本节点：`set_parameter` / `set_parameters`  
+- 远端：客户端或 `ros2 param set` → 触发 `on_set_parameters`  
+
+### 4.4 删 `del_param`
+
+`undeclare_parameter("tmp_flag")` 从本节点参数表移除。  
+业务上真正长期用的参数一般不删；demo 用临时参数演示。
+
+---
+
+## 5. 客户端完整流程（demo02）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as demo02 ParamClient
+    participant S as demo01 ParamServer
+
     C->>C: SyncParametersClient(this, "param_server_node")
-
-    Note over C,S: 【阶段3】发现参数服务
-    C->>S: wait_for_service(10s)
-    S-->>C: 参数相关服务可用
-
-    Note over C,S: 【阶段4】列出 / 读取
+    C->>S: wait_for_service
     C->>S: list_parameters
-    S-->>C: names: car_name, width, length, ...
-    C->>S: get_parameters([...])
-    S-->>C: 当前值
-
-    Note over C,S: 【阶段5】合法修改
-    C->>S: set_parameters(car_name/width/length)
-    S->>S: on_set_parameters 校验通过
-    S->>S: 更新成员变量
-    S-->>C: successful=true
-    C->>S: get_parameters 再次确认
-
-    Note over C,S: 【阶段6】非法修改（演示拒绝）
+    C->>S: get_parameters
+    C->>S: set_parameters（合法）
+    S->>S: on_set_parameters 通过
+    C->>S: get_parameters（确认）
     C->>S: set_parameters(width=9.9)
-    S->>S: on_set_parameters → successful=false
-    S-->>C: reason=width 必须在 0.1~1.0
-    Note right of S: 成员 width 保持原值不变
-
-    Note over C: 【阶段7】客户端退出
+    S-->>C: 拒绝 + reason
     C->>C: shutdown
-
-    Note over CLI,S: 命令行等价路径（任意时刻）
-    CLI->>S: ros2 param set /param_server_node width 0.28
-    S->>S: 同样走 on_set_parameters
 ```
 
----
+要点：
 
-## 2. 阶段拆解
-
-### 阶段 1：服务端从 0 起来
-
-1. `rclcpp::init`
-2. 创建 `ParamServer` 节点 `param_server_node`
-3. **`declare_parameter`**：登记名字、类型、默认值  
-   - 不声明 → 外部 get/set 会失败或行为不符合预期
-4. `get_parameter(...).as_*()` 读到成员变量
-5. `add_on_set_parameters_callback`：之后任何 set（客户端或 CLI）先过这里
-6. 定时器每 2s 打印，方便肉眼看改参是否生效
-7. `spin` 常驻（参数服务回调 + 定时器都靠它）
-
-### 阶段 2~3：客户端连接
-
-```cpp
-param_client_ = std::make_shared<rclcpp::SyncParametersClient>(
-  this, "param_server_node");  // 远端节点名！
-param_client_->wait_for_service(10s);
-```
-
-`SyncParametersClient` = 同步封装：调用时内部等待结果，写演示代码更简单。  
-（还有 `AsyncParametersClient`，适合长期节点里不阻塞。）
-
-### 阶段 4：list / get
-
-- `list_parameters({}, 0)`：列出远端参数名  
-- `get_parameters({"car_name","width","length"})`：批量取值
-
-### 阶段 5：合法 set
-
-客户端构造 `rclcpp::Parameter("width", 0.30)` 等，调用 `set_parameters`。  
-服务端 `on_set_parameters`：
-
-- 校验通过 → `successful=true`，更新 `car_name_/width_/length_`
-- 随后定时器打印会看到新值
-
-### 阶段 6：非法 set（Action 里的「拒绝」同类思想）
-
-`width=9.9` 越界 → 回调返回 `successful=false` + `reason`。  
-**参数不会被改掉**；客户端打印「预期中的拒绝」。
-
-### 阶段 7：退出
-
-- 客户端：演示完 `shutdown` 退出  
-- 服务端：继续 `spin`，仍可用 `ros2 param` 操作
+1. 第二个参数是**远端节点名** `param_server_node`，不是话题名。  
+2. `SyncParametersClient` 同步等待结果，适合学习。  
+3. 「删」主要在服务端 `undeclare`；客户端本节以查/改为主。
 
 ---
 
-## 3. 和「普通 Service」对照
+## 6. 多 Node 会不会抢参数？（简要）
 
-| | `cpp02_service` AddInts | `cpp04_param` |
-|--|-------------------------|---------------|
-| 数据寿命 | 请求来一次算一次 | 参数一直挂在节点上 |
-| 自定义 srv | 要写 `AddInts.srv` | 用标准参数接口，无需自定义 srv |
-| 典型 API | `create_service` / `async_send_request` | `declare_parameter` / `SyncParametersClient` |
-| 校验点 | 服务回调里 | `on_set_parameters` |
+参数挂在**某一个** Node 上。多个客户端只是调它的 get/set 服务。
 
----
+| 情况 | 结论 |
+|------|------|
+| 服务端单线程 `spin` | 回调串行，一般**不用怕内存竞态**（类似 Redis 单线程处理命令） |
+| 多客户端同时 set | **后写覆盖先写**（业务竞态），没有分布式锁 |
+| `MultiThreadedExecutor` | 自有缓存要加锁，或每次 `get_parameter` |
 
-## 4. 多 Node 读写会不会有竞态？
-
-会碰到两类问题，先分清：
-
-| 类型 | 含义 | 本 demo（单线程 `spin`） |
-|------|------|--------------------------|
-| **内存数据竞争** | 两个线程同时读写同一成员变量 | 一般**没有**：定时器、`on_set_parameters`、参数服务回调都在同一条 executor 队列里**串行**执行 |
-| **业务/语义竞态** | 多个客户端交错 get/set，结果取决于谁后到 | **会有**：后写覆盖先写（last-write-wins） |
-
-### 4.1 参数存在哪、谁在抢
-
-- 参数**只属于持有它的那一个 Node**（本例 `param_server_node`）。
-- 多个 `SyncParametersClient` / 多个 `ros2 param set`，都是在调**同一个**节点上的 get/set 服务，并不是每人本地各改一份。
-- 对端节点用单线程 `rclcpp::spin` 时，这些请求进入同一队列，**一次处理一个**，因此 `on_set_parameters` 与定时器打印通常不会并行踩同一块内存。
-
-### 4.2 仍然要注意的语义竞态
-
-1. **多客户端同时改同一参数**  
-   A、B 都先 `get` 再基于旧值 `set` → 后成功的那次覆盖先成功的那次，没有自动合并或事务。
-
-2. **校验拒绝不等于「排队重试」**  
-   非法 `set`（如 `width=9.9`）在 `on_set_parameters` 里 `successful=false`，当前值不变；其它客户端的合法 `set` 仍按到达顺序生效。
-
-3. **缓存成员 vs 节点权威值**  
-   本 demo 定时器读的是回调里更新的 `width_` 等成员。单线程下与回调串行，一致。  
-   若改成 `MultiThreadedExecutor`，回调和定时器可能并行 → 要对成员加锁，或每次打印改用 `get_parameter` 读节点内权威值。
-
-4. **跨节点「配置权」**  
-   若业务上只允许一个配置节点写参，需要自己约定（例如只有 supervisor 调 `set`，其它节点只读），参数 API 本身不提供分布式锁。
-
-### 4.3 实践建议（写进习惯）
-
-- 学习 / 多数节点：默认 **单线程 executor**，简单安全。
-- 多写者：接受 last-write-wins，或集中到单一写者；需要时加版本号/时间戳参数自行检测覆盖。
-- 多线程 executor：保护自有缓存，或不要缓存、读时再 `get_parameter`。
-- 关键配置用 `declare` + `on_set_parameters` 校验；运行时热更新要想清楚「谁有权 set」。
-
-### 4.4 和本 demo 的对应关系
-
-```text
-demo01_param_server  --spin 单线程--> 串行处理 set / 定时器  → 无明显内存竞态
-demo02_param_client  --set--> 与 CLI 一样排队进服务端
-多开几个 client 同时 set width     → 最终值 = 最后一个成功写入的值
-client 设 width=9.9                → 被拒绝，不参与「最后写入」竞争
-```
+详见下文 API 文档「并发」小节。
 
 ---
 
-## 5. 必须记住的几句话
+## 7. 和 Service 的差别（初学者易混）
 
-1. **参数属于某个 Node；先 `declare`，再 get/set。**
-2. **远端操作要用节点名**（本例 `param_server_node`），和话题名/服务名不是同一套。
-3. **`on_set_parameters` 是闸门**：可接受也可拒绝；拒绝则值不变。
-4. **服务端要 `spin`；同步客户端演示可以不长期 spin。**
-5. **单线程 spin 下多为串行、无内存竞态；多客户端并发写仍是 last-write-wins 的业务竞态。**
+| | `cpp02_service` | `cpp04_param` |
+|--|-----------------|---------------|
+| 自定义接口 | 要写 `.srv` | **不用**，标准参数接口 |
+| 数据 | 请求来一次算一次 | 配置一直在节点上 |
+| 典型 API | `create_service` / `async_send_request` | `declare` / `get` / `set` / `undeclare` |
+| 校验位置 | 服务回调 | `on_set_parameters` |
+
+---
+
+## 8. 建议练习顺序
+
+1. 跑 `demo00`，对照日志看懂增删改查。  
+2. 跑 `demo01`，另开终端 `ros2 param get/set`。  
+3. 跑 `demo02`，看合法改成功、非法改被拒。  
+4. 自己加一个参数 `color`（string），走完增→查→改。  
+5. 试着把 `width` 设成 `0.05`，确认被拒绝。
+
+---
+
+## 9. 一句话总结
+
+> **第 04 节 = 在 Node 上对配置做增删改查；服务端拆四个函数演示；客户端远程查改；单线程 spin 下实现简单，多写者仍要接受 last-write-wins。**
