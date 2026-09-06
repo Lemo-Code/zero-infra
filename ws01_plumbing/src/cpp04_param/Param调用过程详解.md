@@ -133,6 +133,17 @@ sequenceDiagram
 `undeclare_parameter("tmp_flag")` 从本节点参数表移除。  
 业务上真正长期用的参数一般不删；demo 用临时参数演示。
 
+**Jazzy 注意：** 用 `declare_parameter<T>(...)` 声明的是**静态类型**参数，**不能** `undeclare`。  
+要演示删除，需声明为动态类型：
+
+```cpp
+rcl_interfaces::msg::ParameterDescriptor desc;
+desc.dynamic_typing = true;
+this->declare_parameter("tmp_flag", rclcpp::ParameterValue(true), desc);
+```
+
+另外：通过 `allow_undeclared_parameters` + `set_parameter` 自动声明出来的参数，一般也可以删。
+
 ---
 
 ## 5. 客户端完整流程（demo02）

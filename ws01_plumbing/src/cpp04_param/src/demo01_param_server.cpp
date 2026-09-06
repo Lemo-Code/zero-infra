@@ -31,6 +31,7 @@
 */
 
 #include "rclcpp/rclcpp.hpp"
+#include "rcl_interfaces/msg/parameter_descriptor.hpp"
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
 
 #include <string>
@@ -72,8 +73,10 @@ private:
     this->declare_parameter<std::string>("car_name", "turtle");
     this->declare_parameter<double>("width", 0.15);
     this->declare_parameter<double>("length", 0.40);
-    // 临时参数：只为演示「删」
-    this->declare_parameter<bool>("tmp_flag", true);
+    // 临时参数（动态类型）：Jazzy 下只有动态类型才能 undeclare
+    rcl_interfaces::msg::ParameterDescriptor desc;
+    desc.dynamic_typing = true;
+    this->declare_parameter("tmp_flag", rclcpp::ParameterValue(true), desc);
   }
 
   // ======================== 3-2. 查 ========================

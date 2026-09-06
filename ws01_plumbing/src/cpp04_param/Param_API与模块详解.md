@@ -126,6 +126,16 @@ this->undeclare_parameter("tmp_flag");
 // 之后 has_parameter("tmp_flag") == false
 ```
 
+**Jazzy：** `declare_parameter<bool>("tmp_flag", true)` 这类**静态类型**参数不能删。  
+演示删除请用动态类型：
+
+```cpp
+rcl_interfaces::msg::ParameterDescriptor desc;
+desc.dynamic_typing = true;
+this->declare_parameter("tmp_flag", rclcpp::ParameterValue(true), desc);
+this->undeclare_parameter("tmp_flag");  // OK
+```
+
 本节客户端以查/改为主；删除在服务端演示即可。
 
 ---

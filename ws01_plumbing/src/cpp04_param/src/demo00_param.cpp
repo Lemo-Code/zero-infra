@@ -23,6 +23,7 @@
 */
 
 #include "rclcpp/rclcpp.hpp"
+#include "rcl_interfaces/msg/parameter_descriptor.hpp"
 
 #include <string>
 
@@ -49,11 +50,16 @@ private:
   void declare_param()
   {
     RCLCPP_INFO(this->get_logger(), "-------- 增 --------");
+    // 带模板的 declare 是「静态类型」参数，Jazzy 下不能 undeclare
     this->declare_parameter<std::string>("car_name", "tiger");
     this->declare_parameter<double>("width", 0.15);
     this->declare_parameter<double>("length", 0.40);
-    this->declare_parameter<bool>("tmp_flag", true);
-    RCLCPP_INFO(this->get_logger(), "已 declare: car_name / width / length / tmp_flag");
+
+    // 要用「删」演示的参数：声明为动态类型（可 undeclare）
+    rcl_interfaces::msg::ParameterDescriptor desc;
+    desc.dynamic_typing = true;
+    this->declare_parameter("tmp_flag", rclcpp::ParameterValue(true), desc);
+    RCLCPP_INFO(this->get_logger(), "已 declare: car_name / width / length / tmp_flag(动态)");
   }
 
   // ---------- 3-2. 查 ----------
