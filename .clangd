@@ -1,0 +1,7 @@
+CompileFlags:
+  Add:
+    - "-std=c++17"
+  CompilationDatabase: ws01_plumbing
+
+Index:
+  Background: Build
