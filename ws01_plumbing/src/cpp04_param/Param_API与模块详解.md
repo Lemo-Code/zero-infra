@@ -193,7 +193,22 @@ ros2 param dump /param_server_node
 
 ---
 
-## 5. API 速查表
+## 5. 并发与竞态（API 视角摘要）
+
+详见调用过程文档第 4 节。这里只记和 API 相关的点：
+
+| 场景 | API / 机制 | 结论 |
+|------|------------|------|
+| 单线程 `spin` | 参数服务回调与 `on_set_parameters`、timer 同队列 | 成员更新一般串行，无数据竞争 |
+| `MultiThreadedExecutor` | 同上可能并行 | 自有缓存加锁，或读用 `get_parameter` |
+| 多 `SyncParametersClient` / CLI 同时 `set_parameters` | 请求在持有节点侧排队处理 | 无分布式锁；**后成功覆盖先成功** |
+| `SetParametersResult.successful=false` | 拒绝本次 set | 该次不参与覆盖；当前参数保持原值 |
+
+不要假设 `get_parameters` + 本地计算 + `set_parameters` 是原子的；中间别人可以插队写入。
+
+---
+
+## 6. API 速查表
 
 | API | 端 | 一句话 |
 |-----|----|--------|
@@ -205,6 +220,6 @@ ros2 param dump /param_server_node
 | `wait_for_service` | Client | 等参数服务 |
 | `list_parameters` | Client | 列名 |
 | `get_parameters` | Client | 批量读 |
-| `set_parameters` | Client | 批量写 |
+| `set_parameters` | Client | 批量写（多写者 last-write-wins） |
 | `rclcpp::Parameter` | Client | 构造要写的项 |
 | `create_wall_timer` / `spin` | Server | 打印与调度 |
