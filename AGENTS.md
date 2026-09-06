@@ -1,7 +1,7 @@
 # AGENTS.md — 本仓库 Agent / 协作者须知
 
 > 适用范围：仓库 [Lemo-Code/zero-infra](https://github.com/Lemo-Code/zero-infra)  
-> 个人学习工程默认在 **`wangmaosen`** 分支维护。  
+> 个人学习工程默认在 **`wms`** 分支维护。  
 > Cursor Agent、人工提交前都先读本文。
 
 ---
@@ -11,19 +11,19 @@
 | 分支 | 谁维护 | 放什么 | 禁止 |
 |------|--------|--------|------|
 | `main` | 同学公共资源 | gitbook / docs 等 | 不要把个人工程、build 产物推这里 |
-| `public` | 课件资料 | `ros2-doc` 类文档资源 | 不要和 `wangmaosen` 学习代码混推 |
-| **`wangmaosen`** | **本人默认工作分支** | `ws01_plumbing` 源码与学习笔记 | 不要推二进制 / 编译产物 |
+| `public` | 课件资料 | `ros2-doc` 类文档资源 | 不要和 `wms` 学习代码混推 |
+| **`wms`** | **本人默认工作分支** | `ws01_plumbing` 源码与学习笔记 | 不要推二进制 / 编译产物 |
 
 本地日常：
 
 ```bash
 cd ~/learning/zero-infra
-git checkout wangmaosen
+git checkout wms
 # 改代码 → add → commit → push
-git push origin wangmaosen
+git push origin wms
 ```
 
-- 新建功能、修 bug、补文档：**只提交到 `wangmaosen`**
+- 新建功能、修 bug、补文档：**只提交到 `wms`**
 - 不要 `git push --force` 到 `main` / `public`
 - 不要把同学的 `main` 内容 force 覆盖掉
 
@@ -65,11 +65,11 @@ du -sh $(git diff --staged --name-only) 2>/dev/null | sort -h
 
 在执行 `git add` / `git commit` / `git push` 前，Agent **必须**：
 
-1. 确认当前分支是 `wangmaosen`（除非用户明确指定其它分支）
+1. 确认当前分支是 `wms`（除非用户明确指定其它分支）
 2. 用 `git status` / `git diff` 确认没有 `build/`、`install/`、`log/`、`.so`、`.o` 等
 3. 不使用 `git add .` / `git add -A` 除非刚检查过忽略规则有效；优先按路径精确 add
 4. 不提交密钥、token、密码
-5. push 目标为 `origin wangmaosen`，不默认推 `main`
+5. push 目标为 `origin wms`，不默认推 `main`
 
 若用户说「提交全部」，仍要先过滤二进制与构建目录，并在回复里说明跳过了哪些路径。
 
@@ -78,7 +78,7 @@ du -sh $(git diff --staged --name-only) 2>/dev/null | sort -h
 ## 3. 工程布局
 
 ```text
-zero-infra/                 ← git 根（wangmaosen 分支）
+zero-infra/                 ← git 根（wms 分支）
 ├── AGENTS.md               ← 本文
 ├── .gitignore
 ├── README.md
@@ -142,11 +142,11 @@ source install/setup.bash
 ## 6. 远程协作提醒
 
 - 远程：`git@github.com:Lemo-Code/zero-infra.git`（SSH）
-- 只读同学资源看 `main` / `public`，个人开发推 `wangmaosen`
+- 只读同学资源看 `main` / `public`，个人开发推 `wms`
 - 误推了二进制：立刻从后续提交中删掉并更新 `.gitignore`；若已进历史且体积很大，再商量是否改写历史（需用户明确同意）
 
 ---
 
 ## 7. 一句话
 
-> **只在 `wangmaosen` 上推进学习工程；只提交源码与文档；构建产物和二进制一律不进仓库。**
+> **只在 `wms` 上推进学习工程；只提交源码与文档；构建产物和二进制一律不进仓库。**

@@ -1,5 +1,5 @@
 ---
-description: Enforce zero-infra git push rules and AGENTS.md (wangmaosen, no binaries)
+description: Enforce zero-infra git push rules and AGENTS.md (wms, no binaries)
 alwaysApply: true
 ---
 
@@ -9,10 +9,10 @@ alwaysApply: true
 
 硬性要求：
 
-1. 默认分支：`wangmaosen`（除非用户明确指定其它分支）
+1. 默认分支：`wms`（除非用户明确指定其它分支）
 2. 禁止提交：`build/` `install/` `log/`、`*.o` `*.so` `*.a`、可执行文件、`.cache/`、`compile_commands.json`、密钥
 3. 不要用盲目的 `git add .`；先 `git status` / `git diff`，确认无二进制和大文件
-4. push 目标：`origin wangmaosen`，不要默认推 `main` 或 `public`
+4. push 目标：`origin wms`，不要默认推 `main` 或 `public`
 5. 改通信 demo 行为时同步更新对应 `*调用过程详解.md` / `*_API与模块详解.md`
 
 不确定是否该提交的文件：先问用户，或默认不加入暂存区。
