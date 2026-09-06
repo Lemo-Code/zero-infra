@@ -8,8 +8,42 @@ log/
 compile_commands.json
 **/compile_commands.json
 
-# editors / OS
+# compiled / binary artifacts
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.elf
+*.bin
+*.pyc
+*.pyo
+__pycache__/
+
+# bags / archives (ask before adding)
+*.bag
+*.mcap
+*.tar
+*.tar.gz
+*.zip
+*.7z
+
+# editors / OS / caches
 .cache/
+**/.cache/
 *.user
 .DS_Store
-.cache/
+*~
+*.swp
+
+# secrets
+.env
+.env.*
+*.pem
+id_rsa
+id_rsa.pub
+*credentials*
+*secret*
